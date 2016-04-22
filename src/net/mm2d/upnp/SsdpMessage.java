@@ -6,7 +6,7 @@ package net.mm2d.upnp;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.net.DatagramPacket;
+import java.net.InetAddress;
 import java.net.InterfaceAddress;
 import java.net.URL;
 
@@ -41,15 +41,16 @@ public abstract class SsdpMessage {
         mMessage = newMessage();
     }
 
-    public SsdpMessage(InterfaceAddress addr, DatagramPacket dp) throws IOException {
+    public SsdpMessage(InterfaceAddress addr, InetAddress sa, byte[] message)
+            throws IOException {
         mMessage = newMessage();
         mInterfaceAddress = addr;
-        mMessage.readData(new ByteArrayInputStream(dp.getData(), 0, dp.getLength()));
+        mMessage.readData(new ByteArrayInputStream(message));
         parseMessage();
         if (mLocation == null) {
             throw new IOException("There is no Location: in header.");
         }
-        final String packetAddress = dp.getAddress().getHostAddress();
+        final String packetAddress = sa.getHostAddress();
         final String locationAddress = new URL(mLocation).getHost();
         if (!packetAddress.equals(locationAddress)) {
             throw new IOException("Location: does not match address of UDP packet.");

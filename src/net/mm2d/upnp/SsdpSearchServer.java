@@ -5,7 +5,7 @@
 package net.mm2d.upnp;
 
 import java.io.IOException;
-import java.net.DatagramPacket;
+import java.net.InetAddress;
 import java.net.InterfaceAddress;
 import java.net.NetworkInterface;
 
@@ -49,9 +49,9 @@ class SsdpSearchServer extends SsdpServer {
     }
 
     @Override
-    protected void onReceive(InterfaceAddress addr, DatagramPacket dp) {
+    protected void onReceive(InterfaceAddress ifa, InetAddress ia, byte[] data) {
         try {
-            final SsdpResponseMessage message = new SsdpResponseMessage(addr, dp);
+            final SsdpResponseMessage message = new SsdpResponseMessage(ifa, ia, data);
             if (mListener != null) {
                 mListener.onReceiveResponse(message);
             }

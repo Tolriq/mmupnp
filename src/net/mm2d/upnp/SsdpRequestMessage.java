@@ -5,7 +5,7 @@
 package net.mm2d.upnp;
 
 import java.io.IOException;
-import java.net.DatagramPacket;
+import java.net.InetAddress;
 import java.net.InterfaceAddress;
 
 /**
@@ -16,8 +16,9 @@ public class SsdpRequestMessage extends SsdpMessage {
         super();
     }
 
-    public SsdpRequestMessage(InterfaceAddress addr, DatagramPacket dp) throws IOException {
-        super(addr, dp);
+    public SsdpRequestMessage(InterfaceAddress ifa, InetAddress ia, byte[] message)
+            throws IOException {
+        super(ifa, ia, message);
     }
 
     @Override

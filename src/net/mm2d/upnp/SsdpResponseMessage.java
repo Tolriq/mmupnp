@@ -5,15 +5,16 @@
 package net.mm2d.upnp;
 
 import java.io.IOException;
-import java.net.DatagramPacket;
+import java.net.InetAddress;
 import java.net.InterfaceAddress;
 
 /**
  * @author <a href="mailto:ryo@mm2d.net">大前良介(OHMAE Ryosuke)</a>
  */
 public class SsdpResponseMessage extends SsdpMessage {
-    public SsdpResponseMessage(InterfaceAddress addr, DatagramPacket dp) throws IOException {
-        super(addr, dp);
+    public SsdpResponseMessage(InterfaceAddress ifa, InetAddress ia, byte[] message)
+            throws IOException {
+        super(ifa, ia, message);
     }
 
     @Override

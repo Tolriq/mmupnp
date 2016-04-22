@@ -8,14 +8,17 @@ import net.mm2d.util.Log;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.net.DatagramPacket;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.InterfaceAddress;
-import java.net.MulticastSocket;
 import java.net.NetworkInterface;
+import java.net.SocketAddress;
 import java.net.SocketTimeoutException;
+import java.net.StandardProtocolFamily;
+import java.net.StandardSocketOptions;
+import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
 import java.util.List;
 
 /**
@@ -31,7 +34,7 @@ abstract class SsdpServer {
     private final NetworkInterface mInterface;
     private InterfaceAddress mInterfaceAddress;
     private final int mBindPort;
-    private MulticastSocket mSocket;
+    private DatagramChannel mChannel;
     private ReceiveThread mThread;
 
     public SsdpServer(NetworkInterface ni) {
@@ -54,20 +57,24 @@ abstract class SsdpServer {
     }
 
     public void open() throws IOException {
-        if (mSocket == null) {
+        if (mChannel != null) {
             close();
         }
-        mSocket = new MulticastSocket(mBindPort);
-        mSocket.setSoTimeout(1000);
-        mSocket.setNetworkInterface(mInterface);
-        mSocket.setTimeToLive(4);
+        mChannel = DatagramChannel.open(StandardProtocolFamily.INET);
+        mChannel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
+        mChannel.bind(new InetSocketAddress(mBindPort));
+        mChannel.setOption(StandardSocketOptions.IP_MULTICAST_IF, mInterface);
+        mChannel.setOption(StandardSocketOptions.IP_MULTICAST_TTL, 4);
     }
 
     public void close() {
         stop(true);
-        if (mSocket != null) {
-            mSocket.close();
-            mSocket = null;
+        if (mChannel != null) {
+            try {
+                mChannel.close();
+            } catch (final IOException ignored) {
+            }
+            mChannel = null;
         }
     }
 
@@ -108,25 +115,18 @@ abstract class SsdpServer {
     }
 
     public void send(byte[] message) {
-        final DatagramPacket dp = new DatagramPacket(message, message.length, SSDP_SO_ADDR);
         try {
-            mSocket.send(dp);
+            mChannel.send(ByteBuffer.wrap(message), SSDP_SO_ADDR);
         } catch (final IOException e) {
             Log.w(TAG, e);
         }
     }
 
-    protected abstract void onReceive(InterfaceAddress addr, DatagramPacket dp);
+    protected abstract void onReceive(InterfaceAddress ifa, InetAddress ia, byte[] data);
 
     private void joinGroup() throws IOException {
         if (mBindPort != 0) {
-            mSocket.joinGroup(SSDP_INET_ADDR);
-        }
-    }
-
-    private void leaveGroup() throws IOException {
-        if (mBindPort != 0) {
-            mSocket.leaveGroup(SSDP_INET_ADDR);
+            mChannel.join(SSDP_INET_ADDR, mInterface);
         }
     }
 
@@ -146,18 +146,20 @@ abstract class SsdpServer {
         public void run() {
             try {
                 joinGroup();
+                final ByteBuffer buffer = ByteBuffer.allocate(1500);
                 while (!mShutdownRequest) {
-                    final byte[] buf = new byte[1500];
-                    final DatagramPacket dp = new DatagramPacket(buf, buf.length);
                     try {
-                        mSocket.receive(dp);
-                        onReceive(mInterfaceAddress, dp);
+                        final SocketAddress sa = mChannel.receive(buffer);
+                        final InetAddress ia = ((InetSocketAddress) sa).getAddress();
+                        final byte[] data = new byte[buffer.position()];
+                        buffer.flip();
+                        buffer.get(data);
+                        onReceive(mInterfaceAddress, ia, data);
+                        buffer.clear();
                     } catch (final SocketTimeoutException e) {
                     }
                 }
-                leaveGroup();
-            } catch (final IOException e) {
-                e.printStackTrace();
+            } catch (final IOException ignored) {
             }
         }
     }

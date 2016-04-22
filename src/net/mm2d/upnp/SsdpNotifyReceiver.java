@@ -7,8 +7,7 @@ package net.mm2d.upnp;
 import net.mm2d.util.Log;
 
 import java.io.IOException;
-import java.net.DatagramPacket;
-import java.net.InetSocketAddress;
+import java.net.InetAddress;
 import java.net.InterfaceAddress;
 import java.net.NetworkInterface;
 
@@ -32,13 +31,13 @@ class SsdpNotifyReceiver extends SsdpServer {
     }
 
     @Override
-    protected void onReceive(InterfaceAddress addr, DatagramPacket dp) {
-        if (!isSameSegment(addr, dp)) {
-            Log.w(TAG, "Invalid segment packet received:" + dp.getAddress().toString());
+    protected void onReceive(InterfaceAddress ifa, InetAddress ia, byte[] data) {
+        if (!isSameSegment(ifa, ia)) {
+            Log.w(TAG, "Invalid segment packet received:" + ia.toString());
             return;
         }
         try {
-            final SsdpRequestMessage message = new SsdpRequestMessage(addr, dp);
+            final SsdpRequestMessage message = new SsdpRequestMessage(ifa, ia, data);
             if (mListener != null) {
                 mListener.onReceiveNotify(message);
             }
@@ -46,10 +45,9 @@ class SsdpNotifyReceiver extends SsdpServer {
         }
     }
 
-    private static boolean isSameSegment(InterfaceAddress ifa, DatagramPacket dp) {
-        final InetSocketAddress sa = (InetSocketAddress) dp.getSocketAddress();
+    private static boolean isSameSegment(InterfaceAddress ifa, InetAddress ia) {
         final byte[] a = ifa.getAddress().getAddress();
-        final byte[] b = sa.getAddress().getAddress();
+        final byte[] b = ia.getAddress();
         final int pref = ifa.getNetworkPrefixLength();
         final int bytes = pref / 8;
         final int bits = pref % 8;
