@@ -1,23 +1,39 @@
 /*
  * Copyright(C) 2016 大前良介(OHMAE Ryosuke)
+ *
+ * This software is released under the MIT License.
+ * http://opensource.org/licenses/MIT
  */
 
 package net.mm2d.upnp;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
 /**
+ * HTTPレスポンスメッセージを表現するクラス。
+ *
  * @author <a href="mailto:ryo@mm2d.net">大前良介(OHMAE Ryosuke)</a>
  */
 public class HttpResponse extends HttpMessage {
     private Http.Status mStatus;
     private int mStatusCode;
-    private String mReasonPhrase;
+    private String mReasonPhrase = "";
 
     @Override
-    public void setStartLine(String line) {
+    public void setStartLine(@Nonnull String line) throws IllegalArgumentException {
         setStatusLine(line);
     }
 
-    public void setStatusLine(String line) {
+    /**
+     * ステータスラインを設定する。
+     *
+     * {@link #setStartLine(String)}のエイリアス。
+     *
+     * @param line ステータスライン
+     * @see #setStartLine(String)
+     */
+    public void setStatusLine(@Nonnull String line) throws IllegalArgumentException {
         final String[] params = line.split(" ");
         if (params.length < 3) {
             throw new IllegalArgumentException();
@@ -28,6 +44,7 @@ public class HttpResponse extends HttpMessage {
     }
 
     @Override
+    @Nonnull
     public String getStartLine() {
         final StringBuilder sb = new StringBuilder();
         sb.append(getVersion());
@@ -44,32 +61,69 @@ public class HttpResponse extends HttpMessage {
         return sb.toString();
     }
 
+    /**
+     * ステータスコードを返す
+     *
+     * @return ステータスコード
+     * @see #getStatus()
+     */
     public int getStatusCode() {
         return mStatusCode;
     }
 
+    /**
+     * ステータスコードを設定する。
+     *
+     * @param code ステータスコード
+     * @see #setStatus(net.mm2d.upnp.Http.Status)
+     */
     public void setStatusCode(int code) {
         mStatusCode = code;
         mStatus = Http.Status.valueOf(code);
-        if (mStatus != null) {
-            mReasonPhrase = mStatus.getPhrase();
+        if (mStatus == null) {
+            throw new IllegalArgumentException("unexpected status code:" + code);
         }
+        mReasonPhrase = mStatus.getPhrase();
     }
 
+    /**
+     * レスポンスフレーズを取得する
+     *
+     * @return レスポンスフレーズ
+     * @see #getStatus()
+     */
+    @Nonnull
     public String getReasonPhrase() {
         return mReasonPhrase;
     }
 
-    public void setReasonPhrase(String reasonPhrase) {
+    /**
+     * レスポンスフレーズを設定する。
+     *
+     * @param reasonPhrase レスポンスフレーズ
+     * @see #setStatus(net.mm2d.upnp.Http.Status)
+     */
+    public void setReasonPhrase(@Nonnull String reasonPhrase) {
         mReasonPhrase = reasonPhrase;
     }
 
-    public void setStatus(Http.Status status) {
+    /**
+     * ステータスを設定する。
+     *
+     * @param status ステータス
+     */
+    public void setStatus(@Nonnull Http.Status status) {
         mStatus = status;
         mStatusCode = status.getCode();
         mReasonPhrase = status.getPhrase();
     }
 
+    /**
+     * ステータスを取得する。
+     *
+     * @return ステータス
+     */
+    @Nullable
     public Http.Status getStatus() {
         return mStatus;
     }

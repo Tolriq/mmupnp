@@ -1,5 +1,8 @@
 /*
  * Copyright(C) 2016 大前良介(OHMAE Ryosuke)
+ *
+ * This software is released under the MIT License.
+ * http://opensource.org/licenses/MIT
  */
 
 package net.mm2d.upnp;
@@ -17,31 +20,105 @@ import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
 /**
+ * イベント購読によって通知されるEventを受信するクラス。
+ *
+ * HTTPのサーバとしてリクエストの受付のみを行う。
+ * HTTPメッセージのパースはリスナーの実装側が行う。
+ *
  * @author <a href="mailto:ryo@mm2d.net">大前良介(OHMAE Ryosuke)</a>
  */
 class EventReceiver {
-    public interface EventPacketListener {
-        boolean onEventReceived(HttpRequest request);
+    /**
+     * イベントデータの受信を受け取るリスナー。
+     */
+    public interface EventMessageListener {
+        /**
+         * イベント受信時にコール。
+         *
+         * @param request 受信したHTTPメッセージ
+         * @return HTTPメッセージが正常であればtrue
+         */
+        boolean onEventReceived(@Nonnull HttpRequest request);
     }
 
     private static final String TAG = "EventReceiver";
     private ServerSocket mServerSocket;
     private ServerThread mServerThread;
-    private EventPacketListener mListener;
+    private EventMessageListener mListener;
+
+    /**
+     * インスタンス作成。
+     */
+    public EventReceiver() {
+    }
+
+    /**
+     * イベント受信リスナーを登録する。
+     *
+     * @param listener リスナー
+     */
+    public void setEventMessageListener(@Nullable EventMessageListener listener) {
+        mListener = listener;
+        if (mServerThread != null) {
+            mServerThread.setEventMessageListener(listener);
+        }
+    }
+
+    /**
+     * サーバソケットのオープンと受信スレッドの開始を行う。
+     *
+     * @throws IOException ソケットの作成に失敗
+     */
+    public void open() throws IOException {
+        mServerSocket = new ServerSocket(0);
+        mServerThread = new ServerThread(mServerSocket);
+        mServerThread.setEventMessageListener(mListener);
+        mServerThread.start();
+    }
+
+    /**
+     * サーバーソケットに割り当てられたポート番号を返す。
+     *
+     * @return サーバソケットのポート番号
+     */
+    public int getLocalPort() {
+        return mServerSocket.getLocalPort();
+    }
+
+    /**
+     * 受信スレッドを終了させる。
+     */
+    public void close() {
+        mServerThread.shutdownRequest();
+        mServerThread = null;
+    }
 
     private static class ServerThread extends Thread {
         private volatile boolean mShutdownRequest = false;
         private final ServerSocket mServerSocket;
         private final List<ClientThread> mClientList;
-        private EventPacketListener mListener;
+        private EventMessageListener mListener;
 
-        public ServerThread(ServerSocket sock) {
+        /**
+         * サーバソケットを指定してインスタンス作成。
+         *
+         * @param sock サーバソケット
+         */
+        public ServerThread(@Nonnull ServerSocket sock) {
             super("EventReceiver::ServerThread");
             mServerSocket = sock;
             mClientList = Collections.synchronizedList(new LinkedList<ClientThread>());
         }
 
+        /**
+         * 受信スレッドを終了させ、サーバソケットのクローズを行う。
+         * クライアントからの接続がある場合は、
+         * それらの受信スレッドを終了させ、クライアントソケットのクローズも行う。
+         */
         public void shutdownRequest() {
             mShutdownRequest = true;
             interrupt();
@@ -58,15 +135,31 @@ class EventReceiver {
             }
         }
 
-        public void notifyClientFinish(ClientThread client) {
+        /**
+         * Clientスレッドからの終了通知
+         *
+         * @param client 終了したClientスレッド
+         */
+        public void notifyClientFinish(@Nonnull ClientThread client) {
             mClientList.remove(client);
         }
 
-        public void setEventPacketListener(EventPacketListener listener) {
+        /**
+         * イベントリスナーの登録
+         *
+         * @param listener リスナー
+         */
+        public void setEventMessageListener(@Nonnull EventMessageListener listener) {
             mListener = listener;
         }
 
-        private boolean notifyEvent(HttpRequest request) {
+        /**
+         * イベントリスナーのコール
+         *
+         * @param request 受信したHTTPメッセージ
+         * @return HTTPメッセージが正常であればtrue
+         */
+        private boolean notifyEvent(@Nonnull HttpRequest request) {
             return mListener != null && mListener.onEventReceived(request);
         }
 
@@ -112,12 +205,21 @@ class EventReceiver {
             RESPONSE_FAIL.setHeader(Http.CONTENT_LENGTH, "0");
         }
 
-        public ClientThread(ServerThread server, Socket sock) {
+        /**
+         * インスタンス作成
+         *
+         * @param server サーバスレッド
+         * @param sock クライアントソケット
+         */
+        public ClientThread(@Nonnull ServerThread server, @Nonnull Socket sock) {
             super("EventReceiver::ClientThread");
             mServer = server;
             mSocket = sock;
         }
 
+        /**
+         * スレッドを終了させ、ソケットのクローズを行う。
+         */
         public void shutdownRequest() {
             interrupt();
             try {
@@ -127,7 +229,7 @@ class EventReceiver {
             }
         }
 
-        private boolean notifyEvent(HttpRequest request) {
+        private boolean notifyEvent(@Nonnull HttpRequest request) {
             return mServer.notifyEvent(request);
         }
 
@@ -164,17 +266,17 @@ class EventReceiver {
             } catch (final IOException e) {
                 Log.w(TAG, e);
             } finally {
-                if (is != null) {
-                    try {
+                try {
+                    if (is != null) {
                         is.close();
-                    } catch (final IOException ignored) {
                     }
+                } catch (final IOException ignored) {
                 }
-                if (os != null) {
-                    try {
+                try {
+                    if (os != null) {
                         os.close();
-                    } catch (final IOException ignored) {
                     }
+                } catch (final IOException ignored) {
                 }
                 try {
                     mSocket.close();
@@ -183,31 +285,5 @@ class EventReceiver {
                 mServer.notifyClientFinish(this);
             }
         }
-    }
-
-    public EventReceiver() {
-    }
-
-    public void setEventPacketListener(EventPacketListener listener) {
-        mListener = listener;
-        if (mServerThread != null) {
-            mServerThread.setEventPacketListener(listener);
-        }
-    }
-
-    public void open() throws IOException {
-        mServerSocket = new ServerSocket(0);
-        mServerThread = new ServerThread(mServerSocket);
-        mServerThread.setEventPacketListener(mListener);
-        mServerThread.start();
-    }
-
-    public int getLocalPort() {
-        return mServerSocket.getLocalPort();
-    }
-
-    public void close() {
-        mServerThread.shutdownRequest();
-        mServerThread = null;
     }
 }

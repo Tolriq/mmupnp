@@ -1,5 +1,8 @@
 /*
  * Copyright(C) 2016 大前良介(OHMAE Ryosuke)
+ *
+ * This software is released under the MIT License.
+ * http://opensource.org/licenses/MIT
  */
 
 package net.mm2d.upnp;
@@ -26,6 +29,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
@@ -38,35 +43,82 @@ import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
 /**
+ * Actionを表現するクラス。
+ *
  * @author <a href="mailto:ryo@mm2d.net">大前良介(OHMAE Ryosuke)</a>
  */
 public class Action {
+    /**
+     * ServiceDescriptionのパース時に使用するビルダー
+     *
+     * @see Device#loadDescription()
+     * @see Service#loadDescription(HttpClient)
+     */
     public static class Builder {
         private Service mService;
         private String mName;
         private final List<Argument.Builder> mArgumentList;
 
+        /**
+         * インスタンス作成。
+         */
         public Builder() {
             mArgumentList = new ArrayList<>();
         }
 
-        public void serService(Service service) {
+        /**
+         * このActionを保持するServiceへの参照を登録。
+         *
+         * @param service このActionを保持するService
+         */
+        public void serService(@Nonnull Service service) {
             mService = service;
         }
 
-        public void setName(String name) {
+        /**
+         * Action名を登録する。
+         *
+         * @param name Action名
+         */
+        public void setName(@Nonnull String name) {
             mName = name;
         }
 
-        public void addArgumentBuilder(Argument.Builder argument) {
+        /**
+         * Argumentのビルダーを登録する。
+         *
+         * Actionのインスタンス作成後にArgumentを登録することはできない
+         *
+         * @param argument Argumentのビルダー
+         */
+        public void addArgumentBuilder(@Nonnull Argument.Builder argument) {
             mArgumentList.add(argument);
         }
 
+        /**
+         * Argumentのビルダーリストを返す。
+         *
+         * @return Argumentのビルダーリスト
+         */
+        @Nonnull
         public List<Argument.Builder> getArgumentBuilderList() {
             return mArgumentList;
         }
 
-        public Action build() {
+        /**
+         * Actionのインスタンスを作成する。
+         *
+         * @return Actionのインスタンス
+         * @throws IllegalStateException 必須パラメータが設定されていない場合
+         */
+        @Nonnull
+        public Action build() throws IllegalStateException {
+            if (mService == null) {
+                throw new IllegalStateException("service must be set.");
+            }
+            if (mName == null) {
+                throw new IllegalStateException("name must be set.");
+            }
             return new Action(this);
         }
     }
@@ -79,10 +131,10 @@ public class Action {
     private static final String SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/";
     private static final String SOAP_STYLE = "http://schemas.xmlsoap.org/soap/encoding/";
 
-    private Action(Builder builder) {
+    private Action(@Nonnull Builder builder) {
         mService = builder.mService;
         mName = builder.mName;
-        mArgumentMap = new LinkedHashMap<>();
+        mArgumentMap = new LinkedHashMap<>(builder.mArgumentList.size());
         for (final Argument.Builder b : builder.mArgumentList) {
             b.setAction(this);
             final Argument argument = b.build();
@@ -90,32 +142,65 @@ public class Action {
         }
     }
 
+    /**
+     * このActionを保持するServiceを返す。
+     *
+     * @return このActionを保持するService
+     */
+    @Nonnull
     public Service getService() {
         return mService;
     }
 
+    /**
+     * Action名を返す。
+     *
+     * @return Action名
+     */
+    @Nonnull
     public String getName() {
         return mName;
     }
 
+    /**
+     * Argumentリストを返す。
+     *
+     * リストは変更不可であり、
+     * 変更しようとするとUnsupportedOperationExceptionが発生する。
+     *
+     * @return Argumentリスト
+     */
+    @Nonnull
     public List<Argument> getArgumentList() {
         if (mArgumentList == null) {
-            mArgumentList = new ArrayList<>(mArgumentMap.values());
+            mArgumentList = Collections.unmodifiableList(new ArrayList<>(mArgumentMap.values()));
         }
-        return Collections.unmodifiableList(mArgumentList);
+        return mArgumentList;
     }
 
+    @Nonnull
     private String getSoapActionName() {
-        return '"' + mService.getServiceType()
-                + '#' + mName + '"';
+        return '"' + mService.getServiceType() + '#' + mName + '"';
     }
 
-    public Map<String, String> invoke(Map<String, String> arguments)
+    /**
+     * Actionを実行する。
+     *
+     * 実行引数及び実行結果はArgument名をkeyとし、値をvalueとしたMapでやり取りする。
+     * 値はすべてStringで表現する。
+     * Argument(StateVariable)のDataTypeに応じた値チェックは行われない。
+     * 引数に不足があった場合、StateVariableにデフォルト値が定義されている場合に限り、その値が反映される。
+     * デフォルト値が定義されていない場合は、DataTypeに違反していても空として扱う。
+     * 実行後エラー応答があった場合のパースには未対応であり、IOExceptionが発生するのみ。
+     *
+     * @param arguments 引数
+     * @return 実行結果
+     * @throws IOException 実行時の何らかの通信例外及びエラー応答があった場合
+     */
+    @Nonnull
+    public Map<String, String> invoke(@Nonnull Map<String, String> arguments)
             throws IOException {
         final String soap = makeSoap(arguments);
-        if (soap == null) {
-            return null;
-        }
         final URL url = mService.getAbsoluteUrl(mService.getControlUrl());
         final HttpRequest request = new HttpRequest();
         request.setMethod(Http.POST);
@@ -134,12 +219,12 @@ public class Action {
         try {
             return parseResponse(response.getBody());
         } catch (SAXException | ParserConfigurationException e) {
-            Log.w(TAG, e);
+            throw new IOException(response.getBody());
         }
-        return null;
     }
 
-    private String makeSoap(Map<String, String> arguments) {
+    @Nonnull
+    private String makeSoap(@Nonnull Map<String, String> arguments) throws IOException {
         try {
             final DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
             dbf.setNamespaceAware(true);
@@ -178,12 +263,12 @@ public class Action {
                 | ParserConfigurationException
                 | TransformerFactoryConfigurationError
                 | TransformerException e) {
-            Log.w(TAG, e);
+            throw new IOException();
         }
-        return null;
     }
 
-    private Element findChildElementByName(Node node, String name) {
+    @Nullable
+    private Element findChildElementByName(@Nonnull Node node, @Nonnull String name) {
         Node child = node.getFirstChild();
         for (; child != null; child = child.getNextSibling()) {
             if (child.getNodeType() != Node.ELEMENT_NODE) {
@@ -196,7 +281,8 @@ public class Action {
         return null;
     }
 
-    private Map<String, String> parseResponse(String xml)
+    @Nonnull
+    private Map<String, String> parseResponse(@Nonnull String xml)
             throws IOException, SAXException, ParserConfigurationException {
         final String responseTag = mName + "Response";
         final Map<String, String> result = new HashMap<>();

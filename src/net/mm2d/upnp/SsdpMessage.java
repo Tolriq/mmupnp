@@ -1,5 +1,8 @@
 /*
  * Copyright(C) 2016 大前良介(OHMAE Ryosuke)
+ *
+ * This software is released under the MIT License.
+ * http://opensource.org/licenses/MIT
  */
 
 package net.mm2d.upnp;
@@ -8,17 +11,41 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InterfaceAddress;
+import java.net.MalformedURLException;
 import java.net.URL;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
 /**
+ * SSDPメッセージを表現するクラス。
+ *
  * @author <a href="mailto:ryo@mm2d.net">大前良介(OHMAE Ryosuke)</a>
  */
 public abstract class SsdpMessage {
+    /**
+     * M-SEARCHのリスエストメソッド
+     */
     public static final String M_SEARCH = "M-SEARCH";
+    /**
+     * NOTIFYのリクエストメソッド
+     */
     public static final String NOTIFY = "NOTIFY";
+    /**
+     * NTSの値：ssdp:alive
+     */
     public static final String SSDP_ALIVE = "ssdp:alive";
+    /**
+     * NTSの値：ssdp:byebye
+     */
     public static final String SSDP_BYEBYE = "ssdp:byebye";
+    /**
+     * NTSの値：ssdp:update
+     */
     public static final String SSDP_UPDATE = "ssdp:update";
+    /**
+     * MANの値：ssdp:discover
+     */
     public static final String SSDP_DISCOVER = "\"ssdp:discover\"";
 
     private final HttpMessage mMessage;
@@ -29,35 +56,73 @@ public abstract class SsdpMessage {
     private String mType;
     private String mNts;
     private String mLocation;
+    private InetAddress mPacketAddress;
     private InterfaceAddress mInterfaceAddress;
 
+    /**
+     * 内部表現としての{@link HttpMessage}のインスタンスを作成する。
+     *
+     * {@link HttpRequest}か{@link HttpResponse}のインスタンスを返すように小クラスで実装する。
+     *
+     * @return {@link HttpMessage}のインスタンス
+     */
+    @Nonnull
     protected abstract HttpMessage newMessage();
 
+    /**
+     * 内部表現としての{@link HttpMessage}を返す。
+     *
+     * @return 内部表現としての{@link HttpMessage}
+     */
+    @Nonnull
     protected HttpMessage getMessage() {
         return mMessage;
     }
 
+    /**
+     * インスタンス作成。
+     */
     public SsdpMessage() {
         mMessage = newMessage();
     }
 
-    public SsdpMessage(InterfaceAddress addr, InetAddress sa, byte[] message)
+    /**
+     * 受信した情報からインスタンス作成
+     *
+     * @param ifa 受信したInterfaceAddress
+     * @param pa 受信したパケットの送信元アドレス
+     * @param message 受信したデータ
+     * @throws IOException 入出力エラー
+     */
+    public SsdpMessage(@Nonnull InterfaceAddress ifa, @Nonnull InetAddress pa,
+            @Nonnull byte[] message)
             throws IOException {
         mMessage = newMessage();
-        mInterfaceAddress = addr;
+        mInterfaceAddress = ifa;
         mMessage.readData(new ByteArrayInputStream(message));
         parseMessage();
-        if (mLocation == null) {
-            throw new IOException("There is no Location: in header.");
-        }
-        final String packetAddress = sa.getHostAddress();
-        final String locationAddress = new URL(mLocation).getHost();
-        if (!packetAddress.equals(locationAddress)) {
-            throw new IOException("Location: does not match address of UDP packet.");
-        }
+        mPacketAddress = pa;
     }
 
-    public void parseMessage() {
+    /**
+     * Locationに記述のアドレスとパケットの送信元アドレスが一致しているかを返す。
+     *
+     * @return 一致している場合true
+     */
+    public boolean hasValidLocation() {
+        if (mLocation == null) {
+            return false;
+        }
+        final String packetAddress = mPacketAddress.getHostAddress();
+        try {
+            final String locationAddress = new URL(mLocation).getHost();
+            return packetAddress.equals(locationAddress);
+        } catch (final MalformedURLException ignored) {
+        }
+        return false;
+    }
+
+    private void parseMessage() {
         parseCacheControl();
         parseUsn();
         mExpireTime = mMaxAge * 1000 + System.currentTimeMillis();
@@ -65,6 +130,12 @@ public abstract class SsdpMessage {
         mNts = mMessage.getHeader(Http.NTS);
     }
 
+    /**
+     * このパケットを受信したInterfaceAddressを返す。
+     *
+     * @return このパケットを受信したInterfaceAddress
+     */
+    @Nonnull
     public InterfaceAddress getInterfaceAddress() {
         return mInterfaceAddress;
     }
@@ -101,39 +172,89 @@ public abstract class SsdpMessage {
         }
     }
 
-    public String getHeader(String name) {
+    /**
+     * ヘッダの値を返す。
+     *
+     * @param name ヘッダ名
+     * @return 値
+     */
+    @Nullable
+    public String getHeader(@Nonnull String name) {
         return mMessage.getHeader(name);
     }
 
-    public void setHeader(String name, String value) {
+    /**
+     * ヘッダの値を設定する。
+     *
+     * @param name ヘッダ名
+     * @param value 値
+     */
+    public void setHeader(@Nonnull String name, @Nonnull String value) {
         mMessage.setHeader(name, value);
     }
 
+    /**
+     * USNに記述されたUUIDを返す。
+     *
+     * @return UUID
+     */
+    @Nullable
     public String getUuid() {
         return mUuid;
     }
 
+    /**
+     * USNに記述されたTypeを返す。
+     *
+     * @return Type
+     */
+    @Nullable
     public String getType() {
         return mType;
     }
 
+    /**
+     * NTSフィールドの値を返す。
+     *
+     * @return NSTフィールドの値
+     */
+    @Nullable
     public String getNts() {
         return mNts;
     }
 
+    /**
+     * max-ageの値を返す。
+     *
+     * @return max-ageの値
+     */
     public int getMaxAge() {
         return mMaxAge;
     }
 
+    /**
+     * 有効期限が切れる時刻を返す。
+     *
+     * 受信時刻からmax-ageを加算した時刻
+     *
+     * @return 有効期限が切れる時刻
+     */
     public long getExpireTime() {
         return mExpireTime;
     }
 
+    /**
+     * Locationの値を返す。
+     *
+     * @return Locationの値
+     */
+    @Nullable
     public String getLocation() {
         return mLocation;
     }
 
     @Override
+    @Nonnull
     public String toString() {
         return mMessage.toString();
     }

@@ -1,5 +1,8 @@
 /*
  * Copyright(C) 2016 大前良介(OHMAE Ryosuke)
+ *
+ * This software is released under the MIT License.
+ * http://opensource.org/licenses/MIT
  */
 
 package net.mm2d.upnp;
@@ -21,11 +24,21 @@ import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.util.List;
 
+import javax.annotation.Nonnull;
+
 /**
+ * SSDPパケットの受信を行うクラスの親クラス。
+ *
  * @author <a href="mailto:ryo@mm2d.net">大前良介(OHMAE Ryosuke)</a>
  */
 abstract class SsdpServer {
+    /**
+     * SSDPに使用するアドレス。
+     */
     public static final String SSDP_ADDR = "239.255.255.250";
+    /**
+     * SSPDに使用するポート番号
+     */
     public static final int SSDP_PORT = 1900;
     private static final InetSocketAddress SSDP_SO_ADDR =
             new InetSocketAddress(SSDP_ADDR, SSDP_PORT);
@@ -37,11 +50,24 @@ abstract class SsdpServer {
     private DatagramChannel mChannel;
     private ReceiveThread mThread;
 
-    public SsdpServer(NetworkInterface ni) {
+    /**
+     * 使用するインターフェースを指定してインスタンス作成。
+     *
+     * 使用するポートは自動割当となる。
+     *
+     * @param ni 使用するインターフェース
+     */
+    public SsdpServer(@Nonnull NetworkInterface ni) {
         this(ni, 0);
     }
 
-    public SsdpServer(NetworkInterface ni, int bindPort) {
+    /**
+     * 使用するインターフェースとポート指定してインスタンス作成。
+     *
+     * @param ni 使用するインターフェース
+     * @param bindPort 使用するポート
+     */
+    public SsdpServer(@Nonnull NetworkInterface ni, int bindPort) {
         mBindPort = bindPort;
         mInterface = ni;
         final List<InterfaceAddress> ifas = mInterface.getInterfaceAddresses();
@@ -56,6 +82,11 @@ abstract class SsdpServer {
         }
     }
 
+    /**
+     * ソケットのオープンを行う。
+     *
+     * @throws IOException ソケット作成に失敗
+     */
     public void open() throws IOException {
         if (mChannel != null) {
             close();
@@ -67,6 +98,9 @@ abstract class SsdpServer {
         mChannel.setOption(StandardSocketOptions.IP_MULTICAST_TTL, 4);
     }
 
+    /**
+     * ソケットのクローズを行う
+     */
     public void close() {
         stop(true);
         if (mChannel != null) {
@@ -78,18 +112,33 @@ abstract class SsdpServer {
         }
     }
 
+    /**
+     * 受信スレッドの開始を行う。
+     */
     public void start() {
         if (mThread != null) {
-            stop(true);
+            stop(false);
         }
         mThread = new ReceiveThread();
         mThread.start();
     }
 
+    /**
+     * 受信スレッドの停止を行う。
+     */
     public void stop() {
         stop(false);
     }
 
+    /**
+     * 受信スレッドの停止と必要があればJoinを行う。
+     *
+     * 現在の実装ではIO待ちに割り込むことはできないため、
+     * joinを指定しても偶然ソケットタイムアウトやソケット受信が発生しないかぎりjoinできない。
+     * TODO: SocketChannelを使用した受信(MulticastChannelはAndroid N以降のため保留)
+     *
+     * @param join trueの時スレッドのJoin待ちを行う。
+     */
     public void stop(boolean join) {
         if (mThread == null) {
             return;
@@ -98,15 +147,20 @@ abstract class SsdpServer {
         if (join) {
             try {
                 mThread.join(1000);
-            } catch (final InterruptedException e) {
+            } catch (final InterruptedException ignored) {
             }
             mThread = null;
         }
     }
 
-    public void send(SsdpMessage message) {
-        final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    /**
+     * このソケットを使用してメッセージ送信を行う。
+     *
+     * @param message 送信するメッセージ
+     */
+    public void send(@Nonnull SsdpMessage message) {
         try {
+            final ByteArrayOutputStream baos = new ByteArrayOutputStream();
             message.getMessage().writeData(baos);
             send(baos.toByteArray());
         } catch (final IOException e) {
@@ -114,7 +168,12 @@ abstract class SsdpServer {
         }
     }
 
-    public void send(byte[] message) {
+    /**
+     * このソケットを使用してメッセージ送信を行う。
+     *
+     * @param message 送信するメッセージ
+     */
+    public void send(@Nonnull byte[] message) {
         try {
             mChannel.send(ByteBuffer.wrap(message), SSDP_SO_ADDR);
         } catch (final IOException e) {
@@ -122,8 +181,23 @@ abstract class SsdpServer {
         }
     }
 
-    protected abstract void onReceive(InterfaceAddress ifa, InetAddress ia, byte[] data);
+    /**
+     * メッセージ受信後の処理、小クラスにより実装する。
+     *
+     * @param addr 受信したインターフェース
+     * @param pa 受信したパケットの送信元アドレス
+     * @param message 受信したデータ
+     */
+    protected abstract void onReceive(@Nonnull InterfaceAddress ifa, @Nonnull InetAddress pa,
+            @Nonnull byte[] data);
 
+    /**
+     * Joinを行う。
+     *
+     * 特定ポートにBindしていない（マルチキャスト受信ソケットでない）場合は何も行わない
+     *
+     * @throws IOException Joinコールにより発生
+     */
     private void joinGroup() throws IOException {
         if (mBindPort != 0) {
             mChannel.join(SSDP_INET_ADDR, mInterface);
@@ -133,10 +207,16 @@ abstract class SsdpServer {
     private class ReceiveThread extends Thread {
         private volatile boolean mShutdownRequest;
 
+        /**
+         * インスタンス作成
+         */
         public ReceiveThread() {
             super("ReceiveThread");
         }
 
+        /**
+         * 割り込みを行い、スレッドを終了させる。
+         */
         public void shutdownRequest() {
             mShutdownRequest = true;
             interrupt();
@@ -150,13 +230,16 @@ abstract class SsdpServer {
                 while (!mShutdownRequest) {
                     try {
                         final SocketAddress sa = mChannel.receive(buffer);
+                        if (mShutdownRequest) {
+                            break;
+                        }
                         final InetAddress ia = ((InetSocketAddress) sa).getAddress();
                         final byte[] data = new byte[buffer.position()];
                         buffer.flip();
                         buffer.get(data);
                         onReceive(mInterfaceAddress, ia, data);
                         buffer.clear();
-                    } catch (final SocketTimeoutException e) {
+                    } catch (final SocketTimeoutException ignored) {
                     }
                 }
             } catch (final IOException ignored) {

@@ -1,5 +1,8 @@
 /*
  * Copyright(C) 2016 大前良介(OHMAE Ryosuke)
+ *
+ * This software is released under the MIT License.
+ * http://opensource.org/licenses/MIT
  */
 
 package net.mm2d.upnp;
@@ -24,11 +27,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
 /**
+ * UPnP Deviceを表現するクラス
+ *
+ * SubDeviceには非対応
+ *
  * @author <a href="mailto:ryo@mm2d.net">大前良介(OHMAE Ryosuke)</a>
  */
 public class Device {
@@ -51,7 +60,12 @@ public class Device {
     private final List<Icon> mIconList;
     private final List<Service> mServiceList;
 
-    public Device(ControlPoint controlPoint) {
+    /**
+     * ControlPointに紐付いたインスタンスを作成。
+     *
+     * @param controlPoint 紐付けるControlPoint
+     */
+    public Device(@Nonnull ControlPoint controlPoint) {
         mControlPoint = controlPoint;
         mIconList = new ArrayList<>();
         mServiceList = new ArrayList<>();
@@ -59,31 +73,85 @@ public class Device {
         mTagMap.put("", new HashMap<String, String>());
     }
 
+    /**
+     * 紐付いたControlPointを返す。
+     *
+     * @return 紐付いたControlPoint
+     */
+    @Nonnull
     public ControlPoint getControlPoint() {
         return mControlPoint;
     }
 
-    void setSsdpMessage(SsdpMessage message) {
+    /**
+     * SSDPパケットを設定する。
+     *
+     * 同一性はSSDPパケットのUUIDで判断し
+     * SSDPパケット受信ごとに更新される
+     *
+     * @param message SSDPパケット
+     */
+    void setSsdpMessage(@Nonnull SsdpMessage message) {
         mSsdp = message;
     }
 
+    /**
+     * 最新のSSDPパケットを返す。
+     *
+     * @return 最新のSSDPパケット
+     */
+    @Nonnull
     SsdpMessage getSsdpMessage() {
         return mSsdp;
     }
 
+    /**
+     * SSDPパケットに記述されたUUIDを返す。
+     *
+     * 本来はDeviceDescriptionに記述されたUDNと同一の値となるはずであるが
+     * 異なる場合もエラーとしては扱っていないため、同一性は保証されない。
+     *
+     * @return SSDPパケットに記述されたUUID
+     */
+    @Nullable
     public String getUuid() {
         return mSsdp.getUuid();
     }
 
+    /**
+     * 更新がなければ無効となる時間[ms]を返す。
+     *
+     * @return 更新がなければ無効となる時間[ms]
+     */
     public long getExpireTime() {
         return mSsdp.getExpireTime();
     }
 
+    /**
+     * DeviceDescriptionのXML文字列を返す。
+     *
+     * @return DeviceDescriptionのXML文字列
+     */
+    @Nullable
     public String getDescription() {
         return mDescription;
     }
 
-    URL getAbsoluteUrl(String url) throws MalformedURLException {
+    /**
+     * URL情報を正規化して返す。
+     *
+     * "http://"から始まっていればそのまま利用する。
+     * "/"から始まっていればLocationホストの絶対パスとして
+     * Locationの"://"以降の最初の"/"までと結合する。
+     * それ以外の場合はLocationからの相対パスであり、
+     * Locationからクエリーを除去し、最後の"/"までと結合する。
+     *
+     * @param url URLパス情報
+     * @return 正規化したURL
+     * @throws MalformedURLException
+     */
+    @Nonnull
+    URL getAbsoluteUrl(@Nonnull String url) throws MalformedURLException {
         if (url.startsWith("http://")) {
             return new URL(url);
         }
@@ -105,6 +173,16 @@ public class Device {
         return new URL(baseUrl + url);
     }
 
+    /**
+     * DeviceDescriptionを読み込む。
+     *
+     * Descriptionのパース後、そこに記述されている
+     * icon/serviceのDescriptionの読み込みパースもまとめて行う。
+     *
+     * @throws IOException 通信上での何らかの問題
+     * @throws SAXException XMLのパースに失敗
+     * @throws ParserConfigurationException XMLパーサが利用できない場合
+     */
     void loadDescription() throws IOException, SAXException, ParserConfigurationException {
         final HttpClient client = new HttpClient(true);
         final URL url = new URL(getLocation());
@@ -121,16 +199,18 @@ public class Device {
         }
         mDescription = response.getBody();
         parseDescription(mDescription);
-//        for (final Icon icon : mIconList) {
-//            icon.loadBinary(client);
-//        }
+        if (Property.isGetIconOnLoadDescription()) {
+            for (final Icon icon : mIconList) {
+                icon.loadBinary(client);
+            }
+        }
         for (final Service service : mServiceList) {
             service.loadDescription(client);
         }
         client.close();
     }
 
-    private void parseIconList(Node listNode) {
+    private void parseIconList(@Nonnull Node listNode) {
         Node node = listNode.getFirstChild();
         for (; node != null; node = node.getNextSibling()) {
             if (node.getNodeType() != Node.ELEMENT_NODE) {
@@ -142,7 +222,7 @@ public class Device {
         }
     }
 
-    private Icon parseIcon(Element element) {
+    private Icon parseIcon(@Nonnull Element element) {
         final Icon.Builder icon = new Icon.Builder();
         icon.setDevice(this);
         Node node = element.getFirstChild();
@@ -166,7 +246,7 @@ public class Device {
         return icon.build();
     }
 
-    private void parseServiceList(Node listNode) {
+    private void parseServiceList(@Nonnull Node listNode) throws IOException {
         Node node = listNode.getFirstChild();
         for (; node != null; node = node.getNextSibling()) {
             if (node.getNodeType() != Node.ELEMENT_NODE) {
@@ -178,7 +258,8 @@ public class Device {
         }
     }
 
-    private Service parseService(Element element) {
+    @Nonnull
+    private Service parseService(@Nonnull Element element) throws IOException {
         final Service.Builder service = new Service.Builder();
         service.setDevice(this);
         Node node = element.getFirstChild();
@@ -199,10 +280,14 @@ public class Device {
                 service.setControlUrl(node.getTextContent());
             }
         }
-        return service.build();
+        try {
+            return service.build();
+        } catch (final IllegalStateException e) {
+            throw new IOException(e.getMessage());
+        }
     }
 
-    private void parseDescription(String xml)
+    private void parseDescription(@Nonnull String xml)
             throws IOException, SAXException, ParserConfigurationException {
         final DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
         dbf.setNamespaceAware(true);
@@ -265,9 +350,38 @@ public class Device {
                 }
             }
         }
+        if (mDeviceType == null) {
+            throw new IOException("deviceType must be set.");
+        }
+        if (mFriendlyName == null) {
+            throw new IOException("friendlyName must be set.");
+        }
+        if (mManufacture == null) {
+            throw new IOException("manufacturer must be set.");
+        }
+        if (mModelName == null) {
+            throw new IOException("modelName must be set.");
+        }
+        if (mUdn == null) {
+            throw new IOException("UDN must be set.");
+        }
     }
 
-    public String getValue(String name) {
+    /**
+     * Descriptionに記述されていたタグの値を取得する。
+     *
+     * 個別にメソッドが用意されているものも取得できるが、個別メソッドの利用を推奨。
+     * 標準外のタグについても取得できるが、属性値の取得方法は提供されない。
+     * また同一タグが複数記述されている場合は最後に記述されていた値が取得される。
+     * タグ名にネームスペースプレフィックスは含まない。
+     * 複数のネームスペースがある場合は最初に見つかったネームスペースのタグが返される。
+     * 値が存在しない場合nullが返る。
+     *
+     * @param name タグ名
+     * @return タグの値
+     */
+    @Nullable
+    public String getValue(@Nonnull String name) {
         for (final Entry<String, Map<String, String>> entry : mTagMap.entrySet()) {
             final String value = entry.getValue().get(name);
             if (value != null) {
@@ -277,7 +391,21 @@ public class Device {
         return null;
     }
 
-    public String getValue(String name, String namespace) {
+    /**
+     * Descriptionに記述されていたタグの値を取得する。
+     *
+     * 個別にメソッドが用意されているものも取得できるが、個別メソッドの利用を推奨。
+     * 標準外のタグについても取得できるが、属性値の取得方法は提供されない、
+     * また同一タグが複数記述されている場合は最後に記述されていた値が取得される。
+     * ネームスペースはプレフィックスではなく、URIを指定する。
+     * 値が存在しない場合nullが返る。
+     *
+     * @param name タグ名
+     * @param namespace ネームスペース（URI）
+     * @return タグの値
+     */
+    @Nullable
+    public String getValue(@Nonnull String name, @Nonnull String namespace) {
         final Map<String, String> nsmap = mTagMap.get(namespace);
         if (nsmap == null) {
             return null;
@@ -285,10 +413,24 @@ public class Device {
         return nsmap.get(name);
     }
 
+    /**
+     * SSDPパケットに記述されているLocationヘッダの値を返す。
+     *
+     * @return Locationヘッダの値
+     */
+    @Nullable
     public String getLocation() {
         return mSsdp.getLocation();
     }
 
+    /**
+     * Locationに記述のIPアドレスを返す。
+     *
+     * 記述に異常がある場合は空文字が返る。
+     *
+     * @return IPアドレス
+     */
+    @Nonnull
     public String getIpAddress() {
         try {
             final URL url = new URL(getLocation());
@@ -298,59 +440,171 @@ public class Device {
         }
     }
 
+    /**
+     * UDNタグの値を返す。
+     *
+     * 値が存在しない場合nullが返る。
+     *
+     * @return UDNタグの値
+     */
+    @Nullable
     public String getUdn() {
         return mUdn;
     }
 
+    /**
+     * deviceTypeタグの値を返す。
+     *
+     * 値が存在しない場合nullが返る。
+     *
+     * @return deviceTypeタグの値
+     */
+    @Nullable
     public String getDeviceType() {
         return mDeviceType;
     }
 
+    /**
+     * friendlyNameタグの値を返す。
+     *
+     * 値が存在しない場合nullが返る。
+     *
+     * @return friendlyNameタグの値
+     */
+    @Nullable
     public String getFriendlyName() {
         return mFriendlyName;
     }
 
+    /**
+     * manufacturerタグの値を返す。
+     *
+     * 値が存在しない場合nullが返る。
+     *
+     * @return manufacturerタグの値
+     */
+    @Nullable
     public String getManufacture() {
         return mManufacture;
     }
 
+    /**
+     * manufacturerURLタグの値を返す。
+     *
+     * 値が存在しない場合nullが返る。
+     *
+     * @return manufacturerURLタグの値
+     */
+    @Nullable
     public String getManufactureUrl() {
         return mManufactureUrl;
     }
 
+    /**
+     * modelNameタグの値を返す。
+     *
+     * 値が存在しない場合nullが返る。
+     *
+     * @return modelNameタグの値
+     */
+    @Nullable
     public String getModelName() {
         return mModelName;
     }
 
+    /**
+     * modelURLタグの値を返す。
+     *
+     * 値が存在しない場合nullが返る。
+     *
+     * @return modelURLタグの値
+     */
+    @Nullable
     public String getModelUrl() {
         return mModelUrl;
     }
 
+    /**
+     * modelDescriptionタグの値を返す。
+     *
+     * 値が存在しない場合nullが返る。
+     *
+     * @return modelDescriptionタグの値
+     */
+    @Nullable
     public String getModelDescription() {
         return mModelDescription;
     }
 
+    /**
+     * modelNumberタグの値を返す。
+     *
+     * 値が存在しない場合nullが返る。
+     *
+     * @return modelNumberタグの値
+     */
+    @Nullable
     public String getModelNumber() {
         return mModelNumber;
     }
 
+    /**
+     * serialNumberタグの値を返す。
+     *
+     * 値が存在しない場合nullが返る。
+     *
+     * @return serialNumberタグの値
+     */
+    @Nullable
     public String getSerialNumber() {
         return mSerialNumber;
     }
 
+    /**
+     * presentationURLタグの値を返す。
+     *
+     * 値が存在しない場合nullが返る。
+     *
+     * @return presentationURLタグの値
+     */
+    @Nullable
     public String getPresentationUrl() {
         return mPresentationUrl;
     }
 
+    /**
+     * Iconのリストを返す。
+     *
+     * @return Iconのリスト
+     * @see Icon
+     */
+    @Nonnull
     public List<Icon> getIconList() {
         return Collections.unmodifiableList(mIconList);
     }
 
+    /**
+     * Serviceのリストを返す。
+     *
+     * @return Serviceのリスト
+     * @see Service
+     */
+    @Nonnull
     public List<Service> getServiceList() {
         return Collections.unmodifiableList(mServiceList);
     }
 
-    public Service findServiceById(String id) {
+    /**
+     * 指定文字列とSerivceIDが合致するサービスを返す。
+     *
+     * 見つからない場合はnullを返す。
+     *
+     * @param id サーチするID
+     * @return 見つかったService
+     * @see Service
+     */
+    @Nullable
+    public Service findServiceById(@Nonnull String id) {
         for (final Service service : mServiceList) {
             if (service.getServiceId().equals(id)) {
                 return service;
@@ -359,7 +613,17 @@ public class Device {
         return null;
     }
 
-    public Service findServiceByType(String type) {
+    /**
+     * 指定文字列とSerivceTypeが合致するサービスを返す。
+     *
+     * 見つからない場合はnullを返す。
+     *
+     * @param type サーチするType
+     * @return 見つかったService
+     * @see Service
+     */
+    @Nullable
+    public Service findServiceByType(@Nonnull String type) {
         for (final Service service : mServiceList) {
             if (service.getServiceType().equals(type)) {
                 return service;
@@ -368,7 +632,24 @@ public class Device {
         return null;
     }
 
-    public Action findAction(String name) {
+    /**
+     * 指定文字列の名前を持つActionを返す。
+     *
+     * 全サービスに対して検索をかけ、最初に見つかったものを返す。
+     * 見つからない場合はnullを返す。
+     *
+     * 特定のサービスのActionを取得したい場合は、
+     * {@link #findServiceById(String)} もしくは
+     * {@link #findServiceByType(String)} を使用してServiceを取得した後、
+     * {@link Service#findAction(String)} を使用する。
+     *
+     * @param name Action名
+     * @return 見つかったAction
+     * @see Service
+     * @see Action
+     */
+    @Nullable
+    public Action findAction(@Nonnull String name) {
         for (final Service service : mServiceList) {
             final Action action = service.findAction(name);
             if (action != null) {
@@ -380,11 +661,11 @@ public class Device {
 
     @Override
     public int hashCode() {
-        return mUdn.hashCode();
+        return mUdn != null ? mUdn.hashCode() : 0;
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (obj == this) {
             return true;
         }
@@ -396,7 +677,8 @@ public class Device {
     }
 
     @Override
+    @Nonnull
     public String toString() {
-        return mFriendlyName;
+        return mFriendlyName != null ? mFriendlyName : "";
     }
 }

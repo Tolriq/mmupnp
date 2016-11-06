@@ -1,5 +1,8 @@
 /*
  * Copyright(C) 2016 大前良介(OHMAE Ryosuke)
+ *
+ * This software is released under the MIT License.
+ * http://opensource.org/licenses/MIT
  */
 
 package net.mm2d.upnp;
@@ -11,7 +14,12 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
 /**
+ * HTTPに必要な各種定義とユーティリティを提供する。
+ *
  * @author <a href="mailto:ryo@mm2d.net">大前良介(OHMAE Ryosuke)</a>
  */
 public final class Http {
@@ -65,20 +73,9 @@ public final class Http {
             + " " + Property.UPNP_VERSION
             + " " + Property.LIB_VERSION;
 
-    private static final DateFormat sRfc1123Format;
-    private static final DateFormat sRfc1036Format;
-    private static final DateFormat sAsctimeFormat;
-    static {
-        final Locale locale = Locale.US;
-        final TimeZone tz = TimeZone.getTimeZone("GMT");
-        sRfc1123Format = new SimpleDateFormat("E, dd MMM yyyy HH:mm:ss z", locale);
-        sRfc1123Format.setTimeZone(tz);
-        sRfc1036Format = new SimpleDateFormat("EEEE, dd-MMM-yy HH:mm:ss z", locale);
-        sRfc1036Format.setTimeZone(tz);
-        sAsctimeFormat = new SimpleDateFormat("E MMM d HH:mm:ss yyyy", locale);
-        sAsctimeFormat.setTimeZone(tz);
-    }
-
+    /**
+     * HTTPのステータスコードを表現するEnum
+     */
     public enum Status {
         HTTP_CONTINUE(100, "Continue"),
         HTTP_SWITCH_PROTOCOL(101, "Switching Protocols"),
@@ -119,8 +116,7 @@ public final class Http {
         HTTP_BAD_GATEWAY(502, "Bad Gateway"),
         HTTP_UNAVAILABLE(503, "Service Unavailable"),
         HTTP_GATEWAY_TIMEOUT(504, "Gateway Time-out"),
-        HTTP_VERSION(505, "HTTP Version not supported"),
-        ;
+        HTTP_VERSION(505, "HTTP Version not supported"),;
         private final int mCode;
         private final String mPhrase;
 
@@ -129,14 +125,32 @@ public final class Http {
             mPhrase = phrase;
         }
 
+        /**
+         * ステータスコードを返す。
+         *
+         * @return ステータスコード
+         */
         public int getCode() {
             return mCode;
         }
 
+        /**
+         * レスポンスフレーズを返す。
+         *
+         * @return レスポンスフレーズ
+         */
+        @Nonnull
         public String getPhrase() {
             return mPhrase;
         }
 
+        /**
+         * ステータスコードのint値から該当するステータスコードを返す。
+         * 
+         * @param code ステータスコード
+         * @return 該当するStatus
+         */
+        @Nullable
         public static Status valueOf(int code) {
             for (final Status c : values()) {
                 if (c.getCode() == code) {
@@ -147,7 +161,32 @@ public final class Http {
         }
     }
 
-    public synchronized static Date parseDate(String string) {
+    private static final DateFormat sRfc1123Format;
+    private static final DateFormat sRfc1036Format;
+    private static final DateFormat sAscTimeFormat;
+
+    static {
+        final Locale locale = Locale.US;
+        final TimeZone tz = TimeZone.getTimeZone("GMT");
+        sRfc1123Format = new SimpleDateFormat("E, dd MMM yyyy HH:mm:ss z", locale);
+        sRfc1123Format.setTimeZone(tz);
+        sRfc1036Format = new SimpleDateFormat("EEEE, dd-MMM-yy HH:mm:ss z", locale);
+        sRfc1036Format.setTimeZone(tz);
+        sAscTimeFormat = new SimpleDateFormat("E MMM d HH:mm:ss yyyy", locale);
+        sAscTimeFormat.setTimeZone(tz);
+    }
+
+    /**
+     * Dateヘッダのパースを行う。
+     *
+     * @param string Dateヘッダ
+     * @return パース結果、失敗した場合null
+     */
+    @Nullable
+    public synchronized static Date parseDate(@Nullable String string) {
+        if (string == null) {
+            return null;
+        }
         try {
             return sRfc1123Format.parse(string);
         } catch (final ParseException ignored) {
@@ -157,20 +196,40 @@ public final class Http {
         } catch (final ParseException ignored) {
         }
         try {
-            return sAsctimeFormat.parse(string);
+            return sAscTimeFormat.parse(string);
         } catch (final ParseException ignored) {
         }
         return null;
     }
 
+    /**
+     * 日付文字列を作成して返す。
+     *
+     * @param date 日付
+     * @return RFC1123形式の日付文字列
+     */
+    @Nonnull
     public synchronized static String formatDate(long date) {
         return formatDate(new Date(date));
     }
 
-    public synchronized static String formatDate(Date date) {
+    /**
+     * 日付文字列を作成して返す。
+     *
+     * @param date 日付
+     * @return RFC1123形式の日付文字列
+     */
+    @Nonnull
+    public synchronized static String formatDate(@Nonnull Date date) {
         return sRfc1123Format.format(date);
     }
 
+    /**
+     * 現在時刻の日付文字列を作成して返す。
+     *
+     * @return RFC1123形式の日付文字列
+     */
+    @Nonnull
     public synchronized static String getCurrentData() {
         return formatDate(System.currentTimeMillis());
     }

@@ -1,5 +1,8 @@
 /*
  * Copyright(C) 2016 大前良介(OHMAE Ryosuke)
+ *
+ * This software is released under the MIT License.
+ * http://opensource.org/licenses/MIT
  */
 
 package net.mm2d.upnp;
@@ -10,8 +13,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.List;
+
+import javax.annotation.Nonnull;
 
 /**
  * @author <a href="mailto:ryo@mm2d.net">大前良介(OHMAE Ryosuke)</a>
@@ -30,7 +34,7 @@ class SubscribeKeeper extends Thread {
         }
     };
 
-    private long getRenewTime(Service service) {
+    private long getRenewTime(@Nonnull Service service) {
         long timeout = service.getSubscriptionTimeout();
         if (timeout > MARGIN_TIME) {
             timeout -= MARGIN_TIME;
@@ -40,7 +44,7 @@ class SubscribeKeeper extends Thread {
         return service.getSubscriptionStart() + timeout;
     }
 
-    public SubscribeKeeper(ControlPoint controlPoint) {
+    public SubscribeKeeper(@Nonnull ControlPoint controlPoint) {
         super(TAG);
         mControlPoint = controlPoint;
         mServiceList = new ArrayList<>();
@@ -55,13 +59,13 @@ class SubscribeKeeper extends Thread {
         Collections.sort(mServiceList, mComparator);
     }
 
-    public synchronized void add(Service service) {
+    public synchronized void add(@Nonnull Service service) {
         mServiceList.add(service);
         Collections.sort(mServiceList, mComparator);
         notifyAll();
     }
 
-    public synchronized void remove(Service service) {
+    public synchronized void remove(@Nonnull Service service) {
         mServiceList.remove(service);
     }
 
@@ -80,9 +84,9 @@ class SubscribeKeeper extends Thread {
                     }
                     work = new ArrayList<>(mServiceList);
                 }
-                final long current = System.currentTimeMillis();
+                final long now = System.currentTimeMillis();
                 for (final Service service : work) {
-                    if (getRenewTime(service) < current) {
+                    if (getRenewTime(service) < now) {
                         try {
                             service.renewSubscribe(false);
                         } catch (final IOException e) {
@@ -92,17 +96,9 @@ class SubscribeKeeper extends Thread {
                         break;
                     }
                 }
+                mControlPoint.removeExpiredSubscribeService();
                 synchronized (this) {
                     Collections.sort(mServiceList, mComparator);
-                    final Iterator<Service> i = mServiceList.iterator();
-                    while (i.hasNext()) {
-                        final Service service = i.next();
-                        if (service.getSubscriptionStart()
-                                + service.getSubscriptionTimeout() < current) {
-                            mControlPoint.unregisterSubscribeService(service, true);
-                            i.remove();
-                        }
-                    }
                     if (mServiceList.size() != 0) {
                         final Service service = mServiceList.get(0);
                         long sleep = getRenewTime(service) - System.currentTimeMillis();
